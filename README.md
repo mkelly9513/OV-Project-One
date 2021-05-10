@@ -5,3 +5,11 @@ Contains the code and scripts used to process the data for my OVCAR3 analysis
 The script used to perform VST normalization and batch correction for the 96 well ovcar3 screen data is called Screen_Preprocessing.R. This file took the raw counts as input, identified two complete outlier samples (which were removed), then performed subsequent normalization and batch correction using surrogate variable analysis; the output was then used for rank based analysis. 
 ## Rank Based Analysis - OVCAR3_Screen_Rank_Based_Analysis.ipynb
 The output from pre-processing was fed into the jupyter notebook OVCAR3_Screen_Rank_Based_Analysis.ipynb. As we only had single replicates this method, I developed a method loosly based off of the CMAP project (CITE) to determine potential regulated genes for my super-enhancers. In this script every gene was ranked based its mean expression across all samples and change in rank values were determine in a gene-sample specific manner. I then used an internal program, written to determine the eFDR of detected genes at a given change in rank threshold, to determine regulated genes at a given emprical FDR.  
+# Cancer Copy Number Analysis 
+## Assignment Genome Wide - OVLP_CNV_Whole_Genome.py
+This program was written to assign copy number from TCGA data to uniform 15kb sliding windows across the genome. This is done one chromosome at a time due to the size and complexity of the data; the shell script launch_pybatch_genome.sh written for a CENTOS architexture allows for parallel analysis of all chromosomes at one time. Input files and output files need to be adjusted as needed. 
+## Assignment to SE Regions - SEOVLP_CNV.py
+This program was written to assign copy number from TCGA data to uniform 15kb sliding windows across the genome which overlap super-enhaners (as determined by bedtools intersect). This is done one chromosome at a time due to the size and complexity of the data; the shell script run_pybatch_SEOVLP.sh written for a CENTOS architexture allows for parallel analysis of all chromosomes at one time. Input files and output files need to be adjusted as needed. 
+## Combination - Combine_CNV_Chr_Files.ipynb
+There are many ways to combine the outputs from these chromosome assignments into a whole genome subset, this is just the approach I used. It is rough but gets the job done. 
+## Comparisons
