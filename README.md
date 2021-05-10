@@ -13,3 +13,5 @@ This program was written to assign copy number from TCGA data to uniform 15kb sl
 ## Combination - Combine_CNV_Chr_Files.ipynb
 There are many ways to combine the outputs from these chromosome assignments into a whole genome subset, this is just the approach I used. It is rough but gets the job done. 
 ## Comparisons
+## Amplifcation of super-enhancers - OVCAR_CNV_Comparison_Final.R
+This program takes the combined output of copy number across the genome from all patients as well as a list of super-enhancer overlapping regions and performs a comparison of the amplification of the super-enhancer windows vs the genome via random subsetting. This is done using lopping coupled with random window subsets and a one sided t.test comparing SE overlapping windows to the randomly drawn genomic windows.  
