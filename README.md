@@ -1,5 +1,6 @@
 # OV-Project-One
-Contains the code and scripts used to process the data for my OVCAR3 analysis 
+Contains the code and scripts used to process and analyze the data for my analysis of super-enhancer function in ovarian cancer cells (OVCAR3) and in patient RNA-seq and Copy Number data from The Cancer Genome Atlas (TCGA). The OVCAR3 data for the CRISPR(i/KO) experiments can be downloaded from the GEO accession assocaited with our paper "A multi-omic dissection of super-enhancer driven oncogenic gene expression programs in ovarian cancer" ,(currently unpublished).
+GEO: https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE174259
 # CRISPRi Screen Analysis
 ## Pre-processing - Screen_Preprocessing.R
 The script used to perform VST normalization and batch correction for the 96 well ovcar3 screen data is called Screen_Preprocessing.R. This file took the raw counts as input, identified two complete outlier samples (which were removed), then performed subsequent normalization and batch correction using surrogate variable analysis; the output was then used for rank based analysis. 
