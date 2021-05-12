@@ -10,6 +10,8 @@ The output from pre-processing was fed into the jupyter notebook OVCAR3_Screen_R
 ## Pre-processing and DEA with DESEQ2 - DESEQ2_RNA_SVA_Plotting.Rmd
 In this R markdown file I walk through how I took the raw counts data, built my input data matrix, cleaned the data, performed exploratory analysis, checked for batch correction, and then performed DEA. I used DESEQ2 to determine the genes that were differentially expressed (in this example just those that are downregulated) between wild type controls and SE60 knock out samples. I did this both with a base model (caring only about the KO vs WT) and a model with one SV included. Any analysis performed here can be repeated for SE14 using the LFC and significance thresholds laid out in the corresponding paper. The raw counts data used as input for this analysis and the paper can be found at GEO. 
 # Cancer Copy Number Analysis 
+## Creating HG19 15kb windows - Split_Genome_into_windows.ipynb
+This program was used to take the hg19 reference genome chromosome lengths and create 15kb sliding windows for chromosomes 1-22 (autosomes). 
 ## Assignment Genome Wide - OVLP_CNV_Whole_Genome.py
 This program was written to assign copy number from TCGA data to uniform 15kb sliding windows across the genome. This is done one chromosome at a time due to the size and complexity of the data; the shell script launch_pybatch_genome.sh written for a CENTOS architexture allows for parallel analysis of all chromosomes at one time. Input files and output files need to be adjusted as needed. 
 ## Assignment to SE Regions - SEOVLP_CNV.py
