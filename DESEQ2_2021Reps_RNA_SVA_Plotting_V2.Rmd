@@ -1,0 +1,533 @@
+---
+title: "RNA-seq KO Analysis"
+author: "Michael Kelly"
+date: "`r format(Sys.time(), '%m/%d/%Y')`"
+output: html_document
+---
+
+# CRISPR KO Analysis Workflow; SE 60 (2v2 "toy" example using real data)
+
+# RNA Data Pre-Processing (Unix Environment)
+First the raw data was combined into into a single matrix using UNIX tools. 
+```{}
+paste OV3_WT-2-57925410-201215_NS500276_0197_AH7KV7BGXH_TCTCTACT-CGCGGTTC_S11.read_counts.txt OV3_WT-3-57925410-201215_NS500276_0197_AH7KV7BGXH_GACCTGAA-TTGGTGAG_S10.read_counts.txt OV3_SE60-12-57925408-201215_NS500276_0197_AH7KV7BGXH_ATCCACTG-AGGTGCGT_S5.read_counts.txt OV3_SE60-54-57925409-201215_NS500276_0197_AH7KV7BGXH_CAAGCTAG-ACATAGCG_S7.read_counts.txt > outputfile.txt
+```
+
+This makes a file where we have the entrez gene id and symbol for every sample so I needed to cut it down 
+
+To keep entrez and symbol with counts we cut certain columns; I keep the entrez id, the symbol, then the counts for WT1,2 and SE60KO 1,2
+```{}
+cut -f 1,2,3,6,9,12 outputfile.txt > OV3_WT_SE60_Read_Counts_w_Entrez.txt
+```
+
+I next remove the entrez id as the gene symbol is okay for counting and DESEQ2
+
+```{}
+cut -f 2,3,4,5,6 OV3_WT_SE60_Read_Counts_w_Entrez.txt > OV3_WT_SE60_Symbol_Read_Counts.txt
+```
+Then I remove any non-unique lines and sort the file 
+```{}
+sort -u -k1,1 OV3_WT_SE60_Symbol_Read_Counts.txt > Unique_WT_SE60_Symbol_counts.txt
+```
+
+Lastly I use a text editor like vi to enter the output file and remove the first four lines (the counting statistics from htseq) and add column names giving me my input file
+
+```{}
+head Unique_WT_SE60_Symbol_counts.txt 
+Symbol	WT1	WT2	SE60KO1	SE60KO2
+A1BG	12	13	42	66
+A1BG-AS1	159	144	170	142
+A1CF	0	0	0	0
+A2M	2	3	5	8
+A2M-AS1	10	7	18	3
+A2ML1	3	4	2	5
+A2ML1-AS1	1	0	0	2
+A2ML1-AS2	0	0	0	0
+A2MP1	46	40	75	60
+
+```
+# CRISPR-KO Analysis (SE14 Full Dataset aka 3 WT controls and 4 KOs)
+# Prepare Environment 
+```{r setup, include=FALSE}
+library(DESeq2)
+library(vsn)
+library(ggplot2)
+library(statmod)
+library(pheatmap)
+library(amap)
+library(RColorBrewer)
+library(biomaRt)
+library(operator.tools)
+```
+
+# Import Data and begin processing 
+
+1) First I want to import our data and look at it's structure to ensure I understand its format and that it contains all the information I want
+
+```{r}
+x <- read.delim("SE14_WT3_44_44_5_35_unique_V2.txt",row.names="Symbol")
+#x <- read.delim("SE60_WT3_12_54_3.1.2_unique.txt",row.names="Symbol")
+
+x[1:10,]
+```
+
+I next want to remove all genes with no counts across my samples as they will cause issues with normalization and variance adjustments
+
+```{r}
+x.sub<- x[rowSums(x) >1 ,]
+dim(x)
+dim(x.sub)
+
+```
+
+As can be seen we remove about 20k features that had 0 counts 
+
+Next I want to create a DESEQ data object from this matrix; this will be done by creating group assignments (3 WT 4 KO). Of import, 5 of these libraries were created at the same time and the other two came later, as such I think it is important to make note of this information. I will encode this as "batch".
+
+```{r}
+group <- factor(c('CNTRL','CNTRL','CNTRL','KO','KO','KO','KO'))
+design <- model.matrix(~group)
+des<-data.frame(design)
+#I like to re-name columns to things that make more sense to me; this will give me a matrix with a sample column and an identity column with 0 for alpha and 1 for beta 
+des$X.Intercept. <- NULL
+des$sample<- as.factor(colnames(x.sub))
+des$designation<- as.factor(des$groupKO)
+des$groupKO<- NULL
+des$batch<-as.factor(c('A','A','A','A','A','B','B'))
+des
+
+```
+ I can now use this as to build a condition aware DESEQ dataset 
+```{r}
+dex<-DESeqDataSetFromMatrix(x.sub,design = ~designation, colData = des)
+colnames(dex)<-des$sample
+dex
+design(dex)= ~ 1+batch+designation
+```
+
+# Data Exploration: Raw Counts
+I next want to explore what this data looks like e.g. how similar are the "replicates", are there outlier effects, whats the high dimension structure, etc.
+
+```{r}
+#within WT cells
+plot(assay(dex)[,1],assay(dex)[,2])
+
+
+#now looking at correlations of raw data 
+cor(assay(dex)[,1],assay(dex)[,2])
+
+
+```
+
+```{r}
+#within KO cells
+plot(assay(dex)[,4],assay(dex)[,5])
+
+
+#now looking at correlations 
+cor(assay(dex)[,4],assay(dex)[,5])
+
+
+```
+
+# Takeaway pre-normalized Data
+We can clearly see that there is a some inter-group variation in the raw-count space; this is not suprising however as we have not adjusted for sequencing depth or performed any kind of scaling. This data will be normalized through the DESEQ2 differential expression analysis pipeline; however, for investigation and visualization purposes the VST transformation is a good surrogate for what goes on under the hood in DESEQ2.
+
+```{r}
+colSums(assay(dex))
+```
+
+# Data Exploration post VST Normalization
+
+I can now look at if normalizing via a method such as VST can improve some of these issues. In theory VST should adjust for outliers, sequencing depth, and differences in variance structure drastically improving the correlations between our samples and making comparisons much cleaner. 
+
+```{r}
+vsd <- vst(dex)
+
+#WT Cells
+plot(assay(vsd)[,1],assay(vsd)[,2])
+
+cor(assay(vsd)[,1],assay(vsd)[,2])
+
+
+```
+
+```{r}
+#KO Cells
+plot(assay(vsd)[,4],assay(vsd)[,5])
+plot(assay(vsd)[,4],assay(vsd)[,6])
+cor(assay(vsd)[,4],assay(vsd)[,5])
+cor(assay(vsd)[,4],assay(vsd)[,6])
+
+```
+
+From this analysis we can determine that these samples are closer to their "replicates" now than they were prieviously; while the wild-type is almost perfectly correlated there appears to be some differences KO clones. This is expected however as these are biologically independant KOs and sample 6/7 are from a different batch.  
+
+One way to investigate what is happening in the data is through looking at a low dimension representation of the data such as PCA. PCA will allow us to view the overall data structure and determine if there is sample seperation on biologcal or technical levels, ideally we want PC1 to seperate WT and KO samples as that will be the largest source of varience in the data. 
+
+
+
+
+```{r}
+pcaData <-DESeq2::plotPCA(vsd, ntop=20000, intgroup = c("sample","designation") ,returnData = TRUE)
+
+percentVar <- round(100 * attr(pcaData, "percentVar")) 
+ggplot(pcaData, aes(x = PC1, y = PC2, color = factor(sample), shape = factor(designation))) + 
+geom_point(size =3, aes(fill=factor(sample))) + 
+geom_point(size =3) + 
+scale_shape_manual(values=c(21,22)) + 
+scale_alpha_manual(values=c("F"=0, "M"=1)) + 
+xlab(paste0("PC1: ", percentVar[1], "% variance")) + 
+ylab(paste0("PC2: ", percentVar[2], "% variance")) + 
+ggtitle("PCA of all genes, 0 (circles) being WT") 
+```
+
+We can also look at the top 3000 most variable features. 
+
+# Heatmaps
+```{r}
+vsd<-vst(dex)
+logcts<- assay(vsd)
+
+rv <- rowVars(logcts)
+o <- order(rv, decreasing=TRUE)[1:3000]
+qlfvals<- assay(vsd)
+
+dists <- Dist(t(qlfvals[o,]), method = 'pearson')
+cols <- colorRampPalette(c("blue","steelblue","white",'salmon',"red"))(255)
+distmat <- as.matrix(dists)
+df <- data.frame(condition=colnames(qlfvals[o,]),
+                 row.names=colnames(distmat))
+pheatmap(qlfvals[o,],scale = 'row',
+         color = cols,
+         #clustering_distance_rows= ,
+         clustering_distance_cols=dists,
+         annotation_col=df,
+         show_rownames=FALSE, show_colnames=TRUE)
+
+
+```
+
+#Takeaway VST Normalized Data
+From this low-dimension view of the data it is clear that the sequencing and analysis batch seems to be playing a large role in the data. This suggests that we should adjsut for this batch effect, as it may interfere with downstream analysis. I can investigate this by hunting for latent variables using SVA (part of the svn package) and including any indentified SV's into our DESEQ2 design matrix informing the model of this unwanted variation. 
+
+# Differential Expression Analysis without Adjusting for Batch/Technical Variables (Version A) 
+Now we can run DESEQ2 Differential Expression Analysis using batch in the model 
+```{r}
+design(dex) = ~1 + batch + designation 
+desdex<-DESeq2::DESeq(dex)
+```
+
+
+Then look at the results 
+
+```{r}
+res <- results(desdex)
+res <- res[order(res$padj),]
+resdown<-res[na.omit(res$log2FoldChange < -.1),]
+resSignorm <- subset(resdown, padj < 0.0005)
+summary(resSignorm)
+```
+
+Now we can run DESEQ2 Differential Expression Analysis without using any accounting for batch in the model  (Version B)
+```{r}
+design(dex) = ~1 + designation
+desdexN<-DESeq2::DESeq(dex)
+```
+
+This seems to have given us some warnings, which was to be expected given the fact we have a large amount of technical variation in the data 
+Then look at the results 
+
+```{r}
+resN <- results(desdexN)
+resN <- resN[order(resN$padj),]
+resdownN<-resN[na.omit(resN$log2FoldChange < -.1),]
+resSignormN <- subset(resdownN, padj < 0.0005)
+summary(resSignormN)
+```
+
+# Adjustment for Technical Effects Via SVA (Version C)
+
+As it appears that there may be technical variables at play I want to investigate if we can determine "non-biological" sources of variation present in the data which we can use to improve the DESEQ model. We can do this using a package called SVA (surrogate variable analysis) where we can compare a model that is aware of the biological difference of interest (in our case WT vs KO) vs one that is agnositc to the biological differences in the data. By adjusting for the variation of interest we can ideally identify technical factors that may be excerting unwanted influence on the data and our future differential expression analysis. Based on the PCA plot above I would expect that the primary surrogate variable will seperate the two KO clones and this will be something we may want to address.
+
+
+```{r}
+dex2 <- estimateSizeFactors(dex)
+norm.cts <- counts(dex2, normalized=TRUE)
+library(sva)
+mm <- model.matrix(~ designation, colData(dex2))
+mm0 <- model.matrix(~ 1, colData(dex2))
+norm.cts <- norm.cts[rowSums(norm.cts) > 0,]
+
+#at this point we determine the surrogate variables by using n.sv, in this example we are looking to see if there is at least 1 significant SV
+fit <- svaseq(norm.cts, mod=mm, mod0=mm0, n.sv=1)
+
+#we can then look at the data in low dimension space to see if the significant SV seems important 
+plot(fit$sv,pch=19,col=dex2$designation)
+
+
+```
+If we focus on the Y axis, which is the variation from our primary surrogate variable SV1 (or in this case the only surrogate variable) it is clear that it seperates the two KO clones and this variation is something we may want to inform the DESEQ model of. 
+
+To start I will just inform the DESEQ model of the SV1 variation to see how that effects results and ignore SV2, as adjusting for too much variation may be harmful.
+
+I can do this by adding in the SV1 information to the DESEQ object, and including it as a term in the design matrix 
+```{r}
+dex2$SV1 = fit$sv[,1]
+design(dex2)= ~ SV1 + designation 
+
+```
+
+I can then run DESEQ2 with this updated object and design matrix and determine if there are differences between the results with the inclusion of this SV as a factor. 
+
+# Differential Expression Analysis with Inclusion of Information about Technical Variation
+```{r}
+desdex2<-DESeq2::DESeq(dex2)
+res <- results(desdex2)
+res <- res[order(res$padj),]
+resdown<-res[na.omit(res$log2FoldChange < -1),]
+resSig <- subset(resdown, padj < 0.0005)
+summary(resSig)
+```
+Now just pvalue not LFC
+```{r}
+desdex2<-DESeq2::DESeq(dex2)
+res <- results(desdex2)
+res <- res[order(res$padj),]
+resSig <- subset(res, padj < 0.0005)
+summary(resSig)
+
+```
+
+
+#Plotting what it looks like after accounting for batch in the model (Version A)
+
+```{r}
+vsd <- vst(dex)
+plotPCA(vsd, "designation")
+plotPCA(vsd, "batch")
+assay(vsd) <- limma::removeBatchEffect(assay(vsd), vsd$batch)
+plotPCA(vsd, "designation")
+plotPCA(vsd, "batch")
+
+```
+
+```{r}
+logcts<- assay(vsd)
+
+rv <- rowVars(logcts)
+o <- order(rv, decreasing=TRUE)[1:3000]
+qlfvals<- assay(vsd)
+
+dists <- Dist(t(qlfvals[o,]), method = 'pearson')
+cols <- colorRampPalette(c('purple',"blue","steelblue","white",'salmon',"red",'firebrick'))(255)
+distmat <- as.matrix(dists)
+df <- data.frame(condition=colnames(qlfvals[o,]),
+                 row.names=colnames(distmat))
+pheatmap(qlfvals[o,],scale = 'row',
+         color = cols,
+         #clustering_distance_rows= ,
+         clustering_distance_cols=dists,
+         annotation_col=df,
+         show_rownames=FALSE, show_colnames=TRUE)
+
+```
+
+#Plotting what it looks like after accounting for batch in the model (Version C)
+```{r}
+vsd <- vst(dex)
+
+```
+
+```{r}
+#remove for vizualization
+svaBatchCor <- function(dat, mmi, mm0,n.sv=NULL){
+  dat <- as.matrix(dat)
+  Y <- t(dat)
+  if(is.null(n.sv))   n.sv <- num.sv(dat,mmi,method="leek")
+  o <- svaseq(dat,mmi,mm0,n.sv=n.sv)
+  W <- o$sv
+  alpha <- solve(t(W) %*% W) %*% t(W) %*% Y
+  o$corrected <- t(Y - W %*% alpha)
+  return(o)}
+
+moda <- model.matrix(~ 1+designation, colData(vsd))
+modb <- model.matrix(~ 1, colData(vsd))
+correcteddata<- svaBatchCor(assay(vsd),moda,modb,1)
+setest<- SummarizedExperiment(correcteddata$corrected, colData = des)
+correctedse<- DESeqTransform(setest)
+rownames(correctedse) <- rownames(x.sub)
+```
+```{r}
+#Looking at significant DEGs only
+correctedse<- correctedse[rownames(correctedse) %in% rownames(resSig),]
+correctedse
+```
+
+
+```{r}
+#pdf(file = "SE14_KO_PCA_1SV.pdf",   # The directory you want to save the file in
+#    width = 8, # The width of the plot in inches
+#    height = 8) # The height of the plot in inches
+
+
+pcaData <- plotPCA(correctedse,  intgroup=c("designation"), returnData=TRUE)
+percentVar <- round(100 * attr(pcaData, "percentVar"))
+ggplot(pcaData, aes(PC1, PC2, color=designation)) +
+  geom_point(size=3) +
+  xlab(paste0("PC1: ",percentVar[1],"% variance")) +
+  ylab(paste0("PC2: ",percentVar[2],"% variance")) + 
+  coord_fixed()
+
+#dev.off()
+
+```
+
+```{r}
+#pdf(file = "SE60_KO_Heatmap_1SV_All_Sig_Genes_pvalue0.0005.pdf",   # The directory you want to save the file in
+#    width = 8, # The width of the plot in inches
+#    height = 8) # The height of the plot in inches
+
+
+
+logcts<- assay(correctedse)
+
+rv <- rowVars(logcts)
+o <- order(rv, decreasing=TRUE)[1:3000]
+qlfvals<- assay(correctedse)
+
+dists <- Dist(t(qlfvals[o,]), method = 'pearson')
+cols <- colorRampPalette(c("blue","steelblue","white",'salmon',"red"))(255)
+distmat <- as.matrix(dists)
+df <- data.frame(condition=colnames(qlfvals[o,]),
+                 row.names=colnames(distmat))
+pheatmap(na.omit(qlfvals[o,]),scale = 'row',
+         color = cols,
+         #clustering_distance_rows= ,
+         clustering_distance_cols=dists,
+         annotation_col=df,
+         show_rownames=FALSE, show_colnames=TRUE)
+
+#dev.off()
+
+
+```
+
+
+
+# Comparison
+
+While both the model that includes batch in the design and the model that accounts for batch using SVA seem to perform much better than the base model; the SVA model cleary adjusts for the technical variation between these samples the best. In both cases (Version A and C) PC1 now seperates WT from KO samples, but the degree of this seperation is larger in the SVA model (Version C); in addition looking at the most variable features in the heatmap shows a much cleaner and biologically relevant resolution after using 1 SV to account for technical variation. 
+
+#saving output 
+```{r}
+#ofile <- gzfile("SE60_KO_Results_ANYfc_.0005fdr_SVA1model.txt.gz", open="w")
+#write.table(as.data.frame(resSig), file=ofile,
+#            row.names=TRUE, quote=FALSE, sep="\t")
+#close(ofile)
+```
+
+
+#saving output 
+```{r}
+#ofile <- gzfile("SE14_KO_ALLRES.txt", open="w")
+#write.table(as.data.frame(res), file=ofile,
+#            row.names=TRUE, quote=FALSE, sep="\t")
+#close(ofile)
+```
+
+#Pathway Analysis (MolSigDB)
+
+```{r}
+library(pheatmap)
+library(amap)
+library(clusterProfiler)
+library(DOSE)
+library(org.Hs.eg.db)
+library(enrichplot)
+library(sigclust)
+```
+
+This is where I create the background universe of genes (all genes included in the DESEQ2 analyis) as well as read in my data set of significance (all genes at FDR 0.0005) called Screendt in this example as it is the set of genes I want to screen for pathways. 
+```{r}
+background_universeOG<- x.sub
+background_universe<- rownames(background_universeOG)
+backgroundgenelist<-bitr(background_universe, fromType='SYMBOL', toType='ENTREZID', OrgDb='org.Hs.eg.db', drop = TRUE)
+#backgroundgenelist<-unique(backgroundallset$)
+#SE14
+Screendt<- read.csv('SE14_CRISPRKO_FDR0.0005_Geneset_DESEQ_data.txt', sep='\t')
+#SE60
+#Screendt<- read.csv('SE60_CRISPRKO_FDR0.0005_Geneset_DESEQ_data.txt', sep='\t')
+LFCs<- Screendt$log2FoldChange
+genelist<- rownames(Screendt)
+
+
+entrezgenelist<-bitr(genelist, fromType='SYMBOL', toType='ENTREZID', OrgDb='org.Hs.eg.db', drop = TRUE)
+entrezgenelist<-entrezgenelist[entrezgenelist$SYMBOL %in% rownames(Screendt),]
+entrezonly<- entrezgenelist$ENTREZID
+
+
+```
+
+
+Then I load the "Hallmark" Gene set from MsigDB
+```{r}
+#h.all.v7.4.entrez.gmt  is hallmark 
+hall<- read.gmt('~/Documents/MOLSIGDB_PATHWAY_Folders/h.all.v7.4.entrez.gmt')
+egmt <- enricher(entrezonly, TERM2GENE=hall)
+head(egmt)
+egmt$Description
+
+```
+
+Then I can split my gene list into up and down genes, for SE14 the top 100 genes is around -3.5 LFC 
+```{r}
+#down genes 
+dwngens<-Screendt[Screendt$log2FoldChange < -3.5,]
+dwnentrez<-entrezgenelist$ENTREZID[entrezgenelist$SYMBOL %in% rownames(dwngens)]
+egmt <- enricher(dwnentrez, TERM2GENE=hall)
+head(egmt)
+egmt$Description
+
+```
+I can also look at upregulated genes using this same method 
+```{r}
+#upregulated genes 
+upgens<-Screendt[Screendt$log2FoldChange > .5,]
+upgensenrz<-entrezgenelist$ENTREZID[entrezgenelist$SYMBOL %in% rownames(upgens)]
+egmt <- enricher(upgensenrz, TERM2GENE=hall)
+head(egmt)
+egmt$Description
+```
+
+
+I can make a plot of all significant terms 
+```{r}
+egmt <- enricher(dwnentrez, TERM2GENE=hall)
+head(egmt)
+barplot(egmt, showCategory=20)
+```
+
+```{r}
+egmt <- enricher(upgensenrz, TERM2GENE=hall)
+head(egmt)
+barplot(egmt, showCategory=20)
+```
+
+This looks at GO term enrichment 
+```{r}
+ego <- enrichGO(gene          = dwnentrez,
+                universe      = names(entrezonly),
+                OrgDb         = org.Hs.eg.db,
+                ont           = "MF",
+                pAdjustMethod = "BH",
+                pvalueCutoff  = 0.05,
+                qvalueCutoff  = 0.05,
+                readable      = TRUE)
+head(ego)
+```
+
+```{r}
+sessionInfo()
+
+```

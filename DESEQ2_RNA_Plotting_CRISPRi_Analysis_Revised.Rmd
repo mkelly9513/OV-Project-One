@@ -1,0 +1,270 @@
+---
+title: "RNA-seq KO Analysis"
+author: "Michael Kelly"
+date: "`r format(Sys.time(), '%m/%d/%Y')`"
+output: html_document
+---
+
+# CRISPRi Analysis Workflow; SE 60 
+
+# RNA Data Pre-Processing (Unix Environment)
+First the raw data was combined into into a single matrix using UNIX tools. 
+```{}
+paste SCRKB_1.hg38.htseq.read_counts.txt SCRKB_2.hg38.htseq.read_counts.txt SCRKB_3.hg38.htseq.read_counts.txt SE60KB_1.hg38.htseq.read_counts.txt SE60KB_2.hg38.htseq.read_counts.txt SE60KB_3.hg38.htseq.read_counts.txt > KRAB_Control_60.txt
+```
+
+This makes a file where we have the entrez gene id and symbol for every sample so I needed to cut it down 
+
+To keep entrez and symbol with counts we cut certain columns; I keep the entrez id, the symbol, then the counts for WT1,2 and SE60KO 1,2
+```{}
+cut -f 1,2,3,6,9,12,15,18 KRAB_Control_60.txt > KRAB_Control_60_entrez.txt
+```
+
+I next remove the entrez id as the gene symbol is okay for counting and DESEQ2
+
+```{}
+cut -f 2,3,4,5,6,7,8 KRAB_Control_60_entrez.txt > KRAB_Control_60_genesymbol.txt
+```
+Then I remove any non-unique lines and sort the file 
+```{}
+sort -u -k1,1 KRAB_Control_60_genesymbol.txt > KRAB_Control_60_Unique_Counts.txt
+```
+
+Lastly I use a text editor like vi to enter the output file and remove the first four lines (the counting statistics from htseq) and add column names giving me my input file
+
+```{}
+Symbol	SCR1	SCR2	SCR3	SE60KB1	SE60KB2	SE60KB3
+A1BG	378	456	259	392	227	324
+A1BG-AS1	114	171	179	151	142	153
+A1CF	0	0	3	0	0	0
+A2M	1	3	8	5	1	3
+A2M-AS1	2	0	1	3	0	0
+A2ML1	5	3	3	3	0	0
+A2ML1-AS1	173	232	232	306	189	180
+A2ML1-AS2	0	0	0	0	0	0
+
+
+```
+
+# Prepare Environment 
+```{r setup, include=FALSE}
+library(DESeq2)
+library(vsn)
+library(ggplot2)
+library(statmod)
+library(pheatmap)
+library(amap)
+library(RColorBrewer)
+
+```
+
+# Import Data and begin processing 
+
+1) First I want to import our data and look at it's structure to ensure I understand its format and that it contains all the information I want
+
+```{r}
+x <- read.delim("KRAB_Control_60_Unique_Counts.txt",row.names="Symbol")
+x[1:10,]
+```
+
+If doing SE 14 I would use this 
+
+```{r}
+x <- read.delim("KRAB_Control_14_Unique_Counts.txt",row.names="Symbol")
+x[1:10,]
+```
+
+I next want to remove all genes with no counts across my samples as they will cause issues with normalization and variance adjustments
+
+```{r}
+x.sub<- x[rowSums(x) >1 ,]
+dim(x)
+dim(x.sub)
+```
+
+Now we will try without SCR3 and KRAB1 
+
+```{r}
+x.sub$SCR3 <-NULL
+x.sub$SE60KB1<- NULL
+
+```
+
+Now we will try without SCR3 and 2 of the 14 KB to match 2v2
+
+```{r}
+x.sub$SCR3 <-NULL
+x.sub$SE14KB1<- NULL
+x.sub$SE14KB2<- NULL
+
+```
+
+
+As can be seen we remove about 20k features that had 0 counts 
+
+Next I want to create a DESEQ data object from this matrix; this will be done by creating group assignments (2 WT 2 KO)
+
+```{r}
+group <- factor(c('CNTRL','CNTRL','KRAB','KRAB'))
+design <- model.matrix(~group)
+des<-data.frame(design)
+#I like to re-name columns to things that make more sense to me; this will give me a matrix with a sample column and an identity column with 0 for alpha and 1 for beta 
+des$X.Intercept. <- NULL
+des$sample<- as.factor(colnames(x.sub))
+des$designation<- as.factor(des$groupKRAB)
+des$groupKO<- NULL
+des
+
+```
+ I can now use this as to build a DESEQ dataset 
+```{r}
+dex<-DESeqDataSetFromMatrix(x.sub,design = ~designation, colData = des)
+colnames(dex)<-des$sample
+dex
+design(dex)= ~ 1+designation
+
+```
+
+# Data Exploration: Raw Counts
+I next want to explore what this data looks like e.g. how similar are the "replicates", are there outlier effects, whats the high dimension structure, etc.
+
+```{r}
+#within WT cells
+plot(assay(dex)[,1],assay(dex)[,2])
+plot(assay(dex)[,1],assay(dex)[,3])
+
+
+#now looking at correlations of raw data 
+cor(assay(dex)[,1],assay(dex)[,2])
+cor(assay(dex)[,1],assay(dex)[,3])
+
+
+```
+
+```{r}
+#within KB cells
+plot(assay(dex)[,4],assay(dex)[,5])
+plot(assay(dex)[,4],assay(dex)[,6])
+
+
+#now looking at correlations 
+cor(assay(dex)[,4],assay(dex)[,5])
+cor(assay(dex)[,4],assay(dex)[,6])
+
+
+```
+
+# Takeaway pre-normalized Data
+We can clearly see that there is a some inter-group variation in the raw-count space; this is not suprising however as we have not adjusted for sequencing depth or performed any kind of scaling. This data will be normalized through the DESEQ2 differential expression analysis pipeline; however, for investigation and visualization purposes the VST transformation is a good surrogate for what goes on under the hood in DESEQ2.
+
+```{r}
+colSums(assay(dex))
+```
+
+# Data Exploration post VST Normalization
+
+I can now look at if normalizing via a method such as VST can improve some of these issues. In theory VST should adjust for outliers, sequencing depth, and differences in variance structure drastically improving the correlations between our samples and making comparisons much cleaner. 
+
+```{r}
+vsd <- vst(dex)
+
+#Scramble Control Cells
+plot(assay(vsd)[,1],assay(vsd)[,2])
+plot(assay(vsd)[,1],assay(vsd)[,3])
+
+
+cor(assay(vsd)[,1],assay(vsd)[,2])
+cor(assay(vsd)[,1],assay(vsd)[,3])
+
+
+```
+
+```{r}
+#KO Cells
+plot(assay(vsd)[,4],assay(vsd)[,5])
+plot(assay(vsd)[,4],assay(vsd)[,6])
+
+cor(assay(vsd)[,4],assay(vsd)[,5])
+cor(assay(vsd)[,4],assay(vsd)[,6])
+
+
+```
+
+From this analysis we can determine that these samples are close to their "replicates" as are the wild-type.
+
+One way to investigate what is happening in the data is through looking at a low dimension representation of the data such as PCA. PCA will allow us to view the overall data structure and determine if there is sample seperation on biologcal or technical levels, ideally we want PC1 to seperate Scramble and KRAB samples as that will be the largest source of varience in the data. 
+
+
+
+
+```{r}
+pcaData <-DESeq2::plotPCA(vsd, ntop=20000, intgroup = c("sample","designation") ,returnData = TRUE)
+
+percentVar <- round(100 * attr(pcaData, "percentVar")) 
+ggplot(pcaData, aes(x = PC1, y = PC2, color = factor(sample), shape = factor(designation))) + 
+geom_point(size =3, aes(fill=factor(sample))) + 
+geom_point(size =3) + 
+scale_shape_manual(values=c(21,22)) + 
+scale_alpha_manual(values=c("F"=0, "M"=1)) + 
+xlab(paste0("PC1: ", percentVar[1], "% variance")) + 
+ylab(paste0("PC2: ", percentVar[2], "% variance")) + 
+ggtitle("PCA of all genes, 0 (circles) being WT") 
+```
+
+We can also look at the top 3000 most variable features. 
+
+# Heatmaps
+```{r}
+vsd<-vst(dex)
+logcts<- assay(vsd)
+
+rv <- rowVars(logcts)
+o <- order(rv, decreasing=TRUE)[1:3000]
+qlfvals<- assay(vsd)
+
+dists <- Dist(t(qlfvals[o,]), method = 'pearson')
+cols <- colorRampPalette(c("blue","steelblue","white",'salmon',"red"))(255)
+distmat <- as.matrix(dists)
+df <- data.frame(condition=colnames(qlfvals[o,]),
+                 row.names=colnames(distmat))
+pheatmap(qlfvals[o,],scale = 'row',
+         color = cols,
+         #clustering_distance_rows= ,
+         clustering_distance_cols=dists,
+         annotation_col=df,
+         show_rownames=FALSE, show_colnames=TRUE)
+
+
+```
+
+#Takeaway VST Normalized Data
+From this low-dimension view of the data it is clear that  PC1 seperates our WT condition from the CRISPRi condition there is some slight variation in the analysis groups. However, there is not enough variation to be an issue, as the clear deviation is between WT and CRISPRi, so I skipped usage of SVA for the final assessment of DEGS and used the basic model previously described. 
+
+
+# Differential Expression Analysis without Adjusting for Batch/Technical Variables 
+Now we can run DESEQ2 Differential Expression Analysis 
+```{r}
+desdex<-DESeq2::DESeq(dex)
+```
+
+
+Then look at the results 
+
+```{r}
+#normcounts60<-counts(desdex, normalized = TRUE)
+#normcounts60['BCAS1',]
+res <- results(desdex)
+res <- res[order(res$padj),]
+resdown<-res[na.omit(res$log2FoldChange < -.5),]
+resSignorm <- subset(resdown, padj < 0.05)
+summary(resSignorm)
+```
+
+#Up-Regulated genes 
+```{r}
+res <- results(desdex)
+res <- res[order(res$padj),]
+resdown<-res[na.omit(res$log2FoldChange > .5),]
+resSignorm <- subset(resdown, padj < 0.05)
+summary(resSignorm)
+```
