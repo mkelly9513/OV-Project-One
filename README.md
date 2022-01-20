@@ -1,7 +1,6 @@
 # OV-Project-One
-Contains the code and scripts used to process and analyze the data for my analysis of super-enhancer function in ovarian cancer cells (OVCAR3) and in patient RNA-seq and Copy Number data from The Cancer Genome Atlas (TCGA). The OVCAR3 data for the CRISPR(i/KO) experiments can be downloaded from the GEO accession assocaited with our paper "A multi-omic dissection of super-enhancer driven oncogenic gene expression programs in ovarian cancer" ,(currently unpublished). Additionally there is OVCAR3 H3K9me3 and Hi-C Seq data. 
-Single Cell Analysis was performed by Matt J Regner and can be found here:
-Hi-C Seq Analysis was performed by Eric S Davis and can be found here:
+Contains the code and scripts used to process and analyze the data for my analysis of super-enhancer function in ovarian cancer cells (OVCAR3) and in patient RNA-seq and Copy Number data from The Cancer Genome Atlas (TCGA). The OVCAR3 data for the CRISPR(i/KO) experiments can be downloaded from the GEO accession assocaited with our paper "A multi-omic dissection of super-enhancer driven oncogenic gene expression programs in ovarian cancer" ,(currently unpublished). Additionally there is OVCAR3 H3K9me3 and Hi-C Seq data. Single Cell Analysis was performed by Matt J Regner  https://github.com/RegnerM2015 . Hi-C Seq Analysis was performed by Eric S Davis: https://github.com/EricSDavis .
+
 GEO: https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE174259
 # CRISPRi Screen Analysis
 ## Pre-processing - Screen_Preprocessing.R
@@ -9,6 +8,9 @@ The script used to perform VST normalization and batch correction for the 96 wel
 ## Rank Based Analysis - OVCAR3_Screen_Analysis_with_Plotting_LFC_Comparison.ipynb
 ### html: OVCAR3_Screen_Analysis_with_Plotting_LFC_Comparison_HTML.html
 The output from pre-processing was fed into the jupyter notebook OVCAR3_Screen_Rank_Based_Analysis.ipynb. As we only had single replicates this method, I developed a method loosely based off of the CMAP project to determine potential regulated genes for my super-enhancers. In this script every gene was ranked based its mean expression across all samples and change in rank values were determine in a gene-sample specific manner. I then used an internal program, written to determine the eFDR of detected genes at a given change in rank threshold, to determine regulated genes at a given emprical FDR. I iterate through a number of changes in rank at a given FDR threshold to maximize detected DEGS. This code also includes various plotting functions and a log2 fold change comparitive analysis. There is an assocaited .hmtl readout (for those who just want to see the code and results without running it) called OVCAR3_Screen_Analysis_with_Plotting_LFC_Comparison_HTML.html . 
+# CRISPRi RNA-Seq in Replicate (bulk)
+## Differential Expression Analysis: DESEQ2_RNA_Plotting_CRISPRi_Analysis_Revised.Rmd
+In this R markdown file I walk through the analysis of our CRISPRi-SE60/14 samples vs scramble guide (non targeting) controls. 
 # CRISPR Knock Out Analysis 
 ## Pre-processing and DEA with DESEQ2 - DESEQ2_2021Reps_RNA_SVA_Plotting_V2.Rmd
 ### html: DESEQ2_2021Reps_RNA_SVA_Plotting_V2.html
