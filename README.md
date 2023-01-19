@@ -1,10 +1,10 @@
 # OV-Project-One
-Contains the code and scripts used to process and analyze the data for my analysis of super-enhancer function in ovarian cancer cells (OVCAR3) and in patient RNA-seq and Copy Number data from The Cancer Genome Atlas (TCGA). The OVCAR3 data for the CRISPR(i/KO) experiments can be downloaded from the GEO accession assocaited with our paper "A multi-omic dissection of super-enhancer driven oncogenic gene expression programs in ovarian cancer" ,(currently unpublished). Additionally there is OVCAR3 H3K9me3 and Hi-C Seq data. Single Cell Analysis was performed by Matt J Regner  https://github.com/RegnerM2015 . Hi-C Seq Analysis was performed by Eric S Davis: https://github.com/EricSDavis .
+Contains the code and scripts used to process and analyze the data for my analysis of super-enhancer function in ovarian cancer cells (OVCAR3) and in patient RNA-seq and Copy Number data from The Cancer Genome Atlas (TCGA). The OVCAR3 data for the CRISPR(i/KO) experiments can be downloaded from the GEO accession assocaited with our paper "A multi-omic dissection of super-enhancer driven oncogenic gene expression programs in ovarian cancer" , published in July 2022. Additionally there is OVCAR3 H3K9me3 and Hi-C Seq data. Single Cell Analysis was performed by Matt J Regner  https://github.com/RegnerM2015 . Hi-C Seq Analysis was performed by Eric S Davis: https://github.com/EricSDavis .
 
 GEO: https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE174259
 
-The Paper assocaited with these analyses is currently under review at Nature Communications but can be found as a pre-print on Bioxiv: 
-https://doi.org/10.1101/2022.04.08.487699 
+The Paper assocaited with these analyses was published in July of 2022 by Nature Communications.
+https://doi.org/10.1038/s41467-022-31919-8
 
 # CRISPRi Screen Analysis
 ## Pre-processing - Screen_Preprocessing.R
